@@ -1,15 +1,28 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { AddressForm } from "@/components/address-form";
 import { FinancialInputsForm } from "@/components/financial-inputs";
+import { SourcesUsesForm } from "@/components/sources-uses-form";
 import { EligibilityBadges } from "@/components/eligibility-badge";
 import { Results } from "@/components/results";
+import { CapitalStackChart } from "@/components/capital-stack-chart";
 import { LoadingSpinner } from "@/components/loading-spinner";
-import { GeocodeResponse, EligibilityResponse, FinancialInputs, ComparisonResult } from "@/lib/types";
+import { GeocodeResponse, EligibilityResponse, FinancialInputs, ComparisonResult, SourcesUsesInputs, SourcesUsesResult, ProFormaAssumptions } from "@/lib/types";
 import { calculateComparison } from "@/lib/calculations";
+import { calculateSourcesUsesResult } from "@/lib/sources-uses";
+import { ProFormaTable } from "@/components/pro-forma-table";
+import { DscrIndicator } from "@/components/dscr-indicator";
+import { ScenarioComparison } from "@/components/scenario-comparison";
+import { SensitivitySliders } from "@/components/sensitivity-sliders";
 
-type Step = "address" | "eligibility-done" | "financial" | "results";
+const LocationMap = dynamic(
+  () => import("@/components/location-map").then((m) => m.LocationMap),
+  { ssr: false, loading: () => <div className="h-[450px] bg-slate-100 rounded-xl animate-pulse" /> }
+);
+
+type Step = "address" | "eligibility-done" | "financial" | "financial-detailed" | "results" | "proforma" | "scenarios";
 
 export default function Home() {
   const [step, setStep] = useState<Step>("address");
@@ -18,7 +31,24 @@ export default function Home() {
   const [geocoded, setGeocoded] = useState<GeocodeResponse | null>(null);
   const [eligibility, setEligibility] = useState<EligibilityResponse | null>(null);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
+  const [sourcesUsesResult, setSourcesUsesResult] = useState<SourcesUsesResult | null>(null);
   const [error, setError] = useState("");
+
+  // Phase 1: Simple vs detailed capital stack
+  const [phase1Enabled, setPhase1Enabled] = useState(false);
+
+  // Pro Forma parameters (carried from financial inputs)
+  const [proFormaParams, setProFormaParams] = useState<{
+    totalDevelopmentCost: number;
+    eligibleBasisPct: number;
+    applicableFraction: number;
+    creditType: "4%" | "9%";
+    equityPricing: number;
+    boostApplied: boolean;
+  } | null>(null);
+
+  // Map interaction
+  const [mapSelection, setMapSelection] = useState<[number, number] | null>(null);
 
   async function handleAddressSubmit(address: { street: string; city: string; state: string; zip: string }) {
     setGeocodeLoading(true);
@@ -37,6 +67,9 @@ export default function Home() {
       }
 
       setGeocoded(data);
+      if (data.lat != null && data.lng != null) {
+        setMapSelection([data.lat, data.lng] as [number, number]);
+      }
 
       const eligRes = await fetch("/api/eligibility", {
         method: "POST",
@@ -58,12 +91,80 @@ export default function Home() {
     }
   }
 
+  async function handleMapClick(lat: number, lng: number, tract: string, stateFips: string, countyFips: string) {
+    const fullGeoId = `${stateFips}${countyFips}${tract}`;
+    setGeocoded({
+      matched: true,
+      tract,
+      countyFips,
+      stateFips,
+      fullGeoId,
+      county: "",
+      state: "",
+      lat,
+      lng,
+    });
+    setMapSelection([lat, lng] as [number, number]);
+
+    setGeocodeLoading(true);
+    setError("");
+    try {
+      const eligRes = await fetch("/api/eligibility", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tract, countyFips, stateFips, fullGeoId }),
+      });
+      const eligData: EligibilityResponse = await eligRes.json();
+      setEligibility(eligData);
+      setStep("eligibility-done");
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setGeocodeLoading(false);
+    }
+  }
+
+  // Simple financial inputs
   async function handleFinancialSubmit(inputs: FinancialInputs) {
     setCalcLoading(true);
     try {
       const result = calculateComparison(inputs);
       setComparison(result);
-      setStep("results");
+      setSourcesUsesResult(null);
+      setProFormaParams({
+        totalDevelopmentCost: inputs.tdc,
+        eligibleBasisPct: inputs.eligibleBasisPct,
+        applicableFraction: inputs.applicableFraction,
+        creditType: inputs.creditType,
+        equityPricing: inputs.equityPricing,
+        boostApplied: eligibility?.eligible ?? false,
+      });
+      setStep("proforma");
+    } catch {
+      setError("Calculation failed.");
+    } finally {
+      setCalcLoading(false);
+    }
+  }
+
+  // Phase 1: Sources & Uses
+  async function handleSourcesUsesSubmit(inputs: SourcesUsesInputs) {
+    setCalcLoading(true);
+    try {
+      const { calculateSourcesUsesSummary } = await import("@/lib/sources-uses");
+      const summary = calculateSourcesUsesSummary(inputs);
+      const result = calculateSourcesUsesResult(inputs);
+      setSourcesUsesResult(result);
+      setComparison(null);
+      setProFormaParams({
+        totalDevelopmentCost: summary.totalUses,
+        eligibleBasisPct: inputs.eligibleBasisPct,
+        applicableFraction: inputs.applicableFraction,
+        creditType: inputs.creditType,
+        equityPricing: inputs.equityPricing,
+        boostApplied: eligibility?.eligible ?? false,
+      });
+      setStep("proforma");
     } catch {
       setError("Calculation failed.");
     } finally {
@@ -76,7 +177,10 @@ export default function Home() {
     setGeocoded(null);
     setEligibility(null);
     setComparison(null);
+    setSourcesUsesResult(null);
+    setProFormaParams(null);
     setError("");
+    setMapSelection(null);
   }
 
   return (
@@ -84,6 +188,7 @@ export default function Home() {
       <div className="max-w-3xl mx-auto px-4 py-8 md:py-12">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">LIHTC Basis Boost Impact Tool</h1>
+          <p className="text-blue-600 mt-1 text-sm font-medium">NYC Tri-State Area — New York · New Jersey · Connecticut</p>
           <p className="text-gray-600 mt-2 text-lg">
             Determine if your property qualifies for the 30% basis boost under IRC Section 42(d)(5)(C)
           </p>
@@ -99,30 +204,56 @@ export default function Home() {
           <span className={`px-3 py-1 rounded-full font-medium ${step === "address" ? "bg-blue-600 text-white" : "bg-emerald-100 text-emerald-700"}`}>
             1. Address
           </span>
-          <span className="text-gray-400">{"\u2192"}</span>
+          <span className="text-gray-400">→</span>
           <span className={`px-3 py-1 rounded-full font-medium ${step === "eligibility-done" ? "bg-blue-600 text-white" : step === "address" ? "bg-gray-200 text-gray-400" : "bg-emerald-100 text-emerald-700"}`}>
             2. Eligibility
           </span>
-          <span className="text-gray-400">{"\u2192"}</span>
-          <span className={`px-3 py-1 rounded-full font-medium ${step === "financial" ? "bg-blue-600 text-white" : step === "results" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+          <span className="text-gray-400">→</span>
+          <span className={`px-3 py-1 rounded-full font-medium ${step === "financial" || step === "financial-detailed" ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-400"}`}>
             3. Financials
+          </span>
+          <span className="text-gray-400">→</span>
+          <span className={`px-3 py-1 rounded-full font-medium ${step === "results" ? "bg-blue-600 text-white" : step === "proforma" || step === "scenarios" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+            4. Results
+          </span>
+          <span className="text-gray-400">→</span>
+          <span className={`px-3 py-1 rounded-full font-medium ${step === "proforma" || step === "scenarios" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+            5. Advanced
           </span>
         </div>
 
         <div className="space-y-6">
+          {/* Step 1: Map + Address, side-by-side */}
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Property Location</h2>
-            <AddressForm onSubmit={handleAddressSubmit} loading={geocodeLoading} />
+            <h2 className="text-xl font-semibold text-gray-800 mb-2">Property Location</h2>
+            <p className="text-sm text-gray-500 mb-4">Type an address or click on the map to select a location.</p>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+              <div className="md:col-span-2">
+                <AddressForm onSubmit={handleAddressSubmit} loading={geocodeLoading} />
+              </div>
+              <div className="md:col-span-3">
+                <LocationMap
+                  onLocationSelect={handleMapClick}
+                  selectedLocation={mapSelection}
+                  eligibilityStatus={eligibility ? { isQCT: eligibility.isQCT, isDDA: eligibility.isDDA } : null}
+                />
+              </div>
+            </div>
           </section>
 
           {geocodeLoading && <LoadingSpinner />}
 
-          {(step === "eligibility-done" || step === "financial" || step === "results") && geocoded && eligibility && (
+          {(step === "eligibility-done" || step === "financial" || step === "financial-detailed" || step === "results") && geocoded && eligibility && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Eligibility Results</h2>
               <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm text-gray-700">
-                <span className="font-medium">Census Tract:</span> {geocoded.tract} &middot;{" "}
-                <span className="font-medium">County:</span> {geocoded.county}, {geocoded.state}
+                <span className="font-medium">Census Tract:</span> {geocoded.tract}
+                {geocoded.county && (
+                  <>
+                    {" · "}
+                    <span className="font-medium">County:</span> {geocoded.county}, {geocoded.state}
+                  </>
+                )}
               </div>
               <EligibilityBadges eligibility={eligibility} />
               {step === "eligibility-done" && (
@@ -136,19 +267,117 @@ export default function Home() {
             </section>
           )}
 
-          {(step === "financial" || step === "results") && (
+          {/* Step 3: Financial Details with Simple/Detailed toggle */}
+          {(step === "financial" || step === "financial-detailed" || step === "results") && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Financial Details</h2>
-              <FinancialInputsForm onSubmit={handleFinancialSubmit} loading={calcLoading} />
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-800">Financial Details</h2>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Simple</span>
+                  <button
+                    onClick={() => {
+                      setPhase1Enabled(!phase1Enabled);
+                      if (phase1Enabled) {
+                        setStep("financial");
+                      } else {
+                        setStep("financial-detailed");
+                      }
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${phase1Enabled ? "bg-emerald-600" : "bg-gray-300"}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${phase1Enabled ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
+                  <span className="text-xs text-gray-500">Capital Stack</span>
+                </div>
+              </div>
+
+              {!phase1Enabled ? (
+                <FinancialInputsForm onSubmit={handleFinancialSubmit} loading={calcLoading} />
+              ) : (
+                <SourcesUsesForm onSubmit={handleSourcesUsesSubmit} loading={calcLoading} />
+              )}
             </section>
           )}
 
           {calcLoading && <LoadingSpinner />}
 
-          {step === "results" && comparison && eligibility && (
+          {/* Results with capital stack chart */}
+          {step === "results" && sourcesUsesResult && (
+            <SourcesUsesResultsSection
+              result={sourcesUsesResult}
+              eligibility={eligibility!}
+              onContinue={() => setStep("proforma")}
+            />
+          )}
+
+          {step === "results" && comparison && !sourcesUsesResult && eligibility && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Impact Analysis</h2>
               <Results comparison={comparison} eligibility={eligibility} />
+              <div className="mt-4">
+                <button
+                  onClick={() => setStep("proforma")}
+                  className="text-sm text-blue-600 hover:underline font-medium"
+                >
+                  Continue to Multi-Year Pro Forma →
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Phase 2: Pro Forma */}
+          {(step === "proforma" || step === "scenarios") && proFormaParams && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-800">15-Year Pro Forma</h2>
+                <button
+                  onClick={() => setStep("scenarios")}
+                  className="text-sm text-blue-600 hover:underline font-medium"
+                >
+                  Scenario Analysis →
+                </button>
+              </div>
+              <ProFormaTable
+                totalDevelopmentCost={proFormaParams.totalDevelopmentCost}
+                eligibleBasisPct={proFormaParams.eligibleBasisPct}
+                applicableFraction={proFormaParams.applicableFraction}
+                creditType={proFormaParams.creditType}
+                equityPricing={proFormaParams.equityPricing}
+                boostApplied={proFormaParams.boostApplied}
+              />
+            </section>
+          )}
+
+          {/* Phase 3: Scenario Engine */}
+          {step === "scenarios" && proFormaParams && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-800">Scenario &amp; Sensitivity Analysis</h2>
+                <button
+                  onClick={() => setStep("proforma")}
+                  className="text-sm text-blue-600 hover:underline font-medium"
+                >
+                  ← Back to Pro Forma
+                </button>
+              </div>
+
+              {/* Scenario comparison cards */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Compare Scenarios</h3>
+                <ScenarioComparison
+                  totalDevelopmentCost={proFormaParams.totalDevelopmentCost}
+                  eligibleBasisPct={proFormaParams.eligibleBasisPct}
+                  applicableFraction={proFormaParams.applicableFraction}
+                  equityPricing={proFormaParams.equityPricing}
+                  boostApplied={proFormaParams.boostApplied}
+                />
+              </div>
+
+              {/* Sensitivity analysis */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Sensitivity Analysis</h3>
+                <SensitivitySliders />
+              </div>
             </section>
           )}
 
@@ -165,10 +394,52 @@ export default function Home() {
         <footer className="mt-12 text-center text-xs text-gray-400">
           <p>This tool is for illustrative purpose only. Not financial or tax advice.</p>
           <p className="mt-1">
-            Data sources: US Census Geocoder (geocoding), HUD QCT/DDA (eligibility).
+            Data sources: Census TIGER/Line (map), Census Geocoder (eligibility), HUD QCT/DDA (designation).
           </p>
         </footer>
       </div>
     </main>
+  );
+}
+
+function SourcesUsesResultsSection({
+  result,
+  eligibility,
+  onContinue,
+}: {
+  result: SourcesUsesResult;
+  eligibility: EligibilityResponse;
+  onContinue?: () => void;
+}) {
+  return (
+    <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
+      <h2 className="text-xl font-semibold text-gray-800 mb-4">Capital Stack Analysis</h2>
+
+      {/* Capital Stack Chart */}
+      <CapitalStackChart
+        summary={result.summary}
+        uses={result.uses}
+        sources={result.sources}
+      />
+
+      {/* Results comparison */}
+      <Results comparison={{
+        withoutBoost: result.withoutBoost,
+        withBoost: result.withBoost,
+        equityDelta: result.equityDelta,
+        boostPct: result.boostPct,
+      }} eligibility={eligibility} />
+
+      {onContinue && (
+        <div className="mt-4">
+          <button
+            onClick={onContinue}
+            className="text-sm text-blue-600 hover:underline font-medium"
+          >
+            Continue to Multi-Year Pro Forma →
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
