@@ -103,7 +103,7 @@ export function RentComparison({ fmrData, state }: RentComparisonProps) {
               </div>
             )}
 
-            {/* Hidden input for adjusting */}
+            {/* Slider for adjusting rent */}
             <input
               type="range"
               min="0"
@@ -116,7 +116,7 @@ export function RentComparison({ fmrData, state }: RentComparisonProps) {
                   [br]: parseInt(e.target.value),
                 }))
               }
-              className="w-full mt-2 hidden"
+              className="w-full mt-2 accent-emerald-600"
             />
           </div>
         );
