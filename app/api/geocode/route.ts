@@ -1,5 +1,5 @@
 import { geocodeAddress, reverseGeocode } from "@/lib/census-api";
-import { GeocodeRequest, ReverseGeocodeRequest } from "@/lib/types";
+import { GeocodeRequest, ReverseGeocodeRequest, GeocodeResponse } from "@/lib/types";
 import { RequestCache } from "@/lib/cache";
 
 const geocodeCache = new RequestCache(30 * 60 * 1000); // 30 min TTL
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       return Response.json(cached);
     }
 
-    let result;
+    let result: GeocodeResponse;
     if (isReverse) {
       const geoBody = body as ReverseGeocodeRequest;
       result = await reverseGeocode(geoBody);

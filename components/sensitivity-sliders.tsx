@@ -61,15 +61,12 @@ export function SensitivitySliders() {
       {/* Tornado chart */}
       {showTornado && tornadoData.length > 0 && (
         <div className="space-y-3">
-          <div className="text-sm font-medium text-gray-800">
-            Impact on Total 15-yr Cash Flow (sorted by sensitivity)
-          </div>
-          <div className="h-64">
+          <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={tornadoData}
                 layout="vertical"
-                margin={{ left: 30 }}
+                margin={{ top: 30, left: 30, right: 20 }}
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis
@@ -94,6 +91,9 @@ export function SensitivitySliders() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </div>
+          <div className="text-sm font-medium text-gray-800 text-center mt-6">
+            Impact on Total 15-yr Cash Flow (sorted by sensitivity)
           </div>
           <div className="text-xs text-gray-500 mt-2">
             {tornadoData.map((bar) => (

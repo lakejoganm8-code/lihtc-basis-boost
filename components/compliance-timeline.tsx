@@ -77,67 +77,106 @@ export function ComplianceTimelineView({ timeline }: ComplianceTimelineProps) {
         </div>
       </div>
 
-      {/* Year-by-Year Timeline */}
-      <div className="space-y-1">
-        <div className="grid grid-cols-5 md:grid-cols-7 gap-2 text-xs text-gray-500 font-medium px-2 py-1 border-b border-gray-200">
-          <div>Year</div>
-          <div className="text-right">App. Fraction</div>
-          <div className="text-right">Qualified Basis</div>
-          <div className="text-right hidden md:block">Credits</div>
-          <div className="text-right">DSCR</div>
-          <div className="text-center hidden md:block">Status</div>
-          <div className="text-center">Expand</div>
-        </div>
-
+      {/* Year-by-Year Timeline - Card-based layout */}
+      <div className="space-y-2">
         {timeline.years.map((y) => {
           const dscr = dscrStatus(y.dscr);
           const isCreditPeriod = y.yearType === "credit";
+          const expanded = expandedYear === y.year;
 
           return (
             <div key={y.year}>
               <button
                 onClick={() => toggleYear(y.year)}
-                className={`w-full grid grid-cols-5 md:grid-cols-7 gap-2 text-sm px-2 py-2.5 rounded-lg transition hover:bg-gray-50 ${
+                className={`w-full text-left rounded-xl border p-4 transition hover:shadow-md ${
                   y.deficitFlag
-                    ? "bg-red-50 border border-red-100"
+                    ? "border-red-200 bg-red-50"
                     : y.qualifiedBasisReduction
-                    ? "bg-amber-50 border border-amber-100"
-                    : ""
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-gray-200 bg-white hover:border-gray-300"
                 }`}
               >
-                <div className="font-mono">
-                  <span className={isCreditPeriod ? "text-blue-700 font-semibold" : "text-gray-500"}>
-                    {y.year}
-                  </span>
-                  {y.year === 1 && <span className="ml-1 text-[10px] text-green-600">PIS</span>}
+                <div className="flex items-center justify-between">
+                  {/* Left: Year + year type */}
+                  <div className="flex items-center gap-3">
+                    <div className="text-lg font-mono font-bold">
+                      <span className={isCreditPeriod ? "text-blue-700" : "text-gray-400"}>
+                        {y.year}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      {y.year === 1 && (
+                        <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">
+                          Placed in Service
+                        </span>
+                      )}
+                      {isCreditPeriod && y.year > 1 && (
+                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                          Credit Period
+                        </span>
+                      )}
+                      {!isCreditPeriod && (
+                        <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">
+                          Compliance Only
+                        </span>
+                      )}
+                      {y.boostActive && (
+                        <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">
+                          Boost Active
+                        </span>
+                      )}
+                      {y.deficitFlag && (
+                        <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">
+                          Deficit
+                        </span>
+                      )}
+                      {y.qualifiedBasisReduction && (
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                          Basis Reduction
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Key metrics */}
+                  <div className="text-right">
+                    <div className={`font-mono text-xs ${
+                      y.deficitFlag ? "text-red-600" : "text-emerald-600"
+                    }`}>
+                      NOI: {fmtShort(y.netOperatingIncome)}
+                    </div>
+                    <div className={`font-mono text-xs mt-0.5 ${
+                      y.annualCredits > 0 ? "text-emerald-700" : "text-gray-400"
+                    }`}>
+                      {y.annualCredits > 0 ? `Credits: ${fmtShort(y.annualCredits)}` : "No credits"}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right font-mono">{y.applicableFraction.toFixed(1)}%</div>
-                <div className="text-right font-mono text-xs">{fmtShort(y.qualifiedBasis)}</div>
-                <div className={`text-right font-mono text-xs hidden md:block ${y.annualCredits > 0 ? "text-emerald-700" : "text-gray-400"}`}>
-                  {y.annualCredits > 0 ? fmtShort(y.annualCredits) : "—"}
-                </div>
-                <div className={`text-right font-mono ${
-                  dscr === "pass" ? "text-emerald-600" : dscr === "warning" ? "text-amber-600" : "text-red-600"
-                }`}>
-                  {y.dscr === Infinity ? "∞" : y.dscr.toFixed(2)}
-                </div>
-                <div className="text-center hidden md:block">
-                  {y.deficitFlag ? (
-                    <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Def</span>
-                  ) : y.qualifiedBasisReduction ? (
-                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Red</span>
-                  ) : (
-                    <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">OK</span>
-                  )}
-                </div>
-                <div className="text-center text-gray-400 text-xs">
-                  {expandedYear === y.year ? "−" : "+"}
+
+                {/* Secondary metrics row */}
+                <div className="mt-2 grid grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <span className="text-gray-500">Qualified Basis: </span>
+                    <span className="font-mono">{fmtShort(y.qualifiedBasis)}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">App. Fraction: </span>
+                    <span className="font-mono">{y.applicableFraction.toFixed(1)}%</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-gray-500">DSCR: </span>
+                    <span className={`font-mono ${
+                      dscr === "pass" ? "text-emerald-600" : dscr === "warning" ? "text-amber-600" : "text-red-600"
+                    }`}>
+                      {y.dscr === Infinity ? "∞" : y.dscr.toFixed(2)}
+                    </span>
+                  </div>
                 </div>
               </button>
 
               {/* Expanded year details */}
-              {expandedYear === y.year && (
-                <div className="ml-4 mt-1 mb-2 p-3 bg-gray-50 rounded-lg text-xs grid grid-cols-2 md:grid-cols-4 gap-3">
+              {expanded && (
+                <div className="ml-4 mt-1 mb-2 p-4 bg-gray-50 rounded-lg text-xs grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
                     <div className="text-gray-500">Year Type</div>
                     <div className="font-medium">{isCreditPeriod ? "Credit Year" : "Compliance Only"}</div>

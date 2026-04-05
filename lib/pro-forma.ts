@@ -121,9 +121,10 @@ export function calculateProForma(assumptions: ProFormaAssumptions): ProFormaRes
   const totalCash = years.reduce((s, y) => s + y.cashFlowBeforeTax, 0);
 
   const dscrValues = years.filter((y) => y.dscr !== Infinity);
-  const minDSCR = dscrValues.length > 0 ? Math.min(...dscrValues.map((y) => y.dscr)) : 0;
-  const minDSCRYear = years.find((y) => y.dscr === minDSCR)?.year ?? 0;
-  const avgDSCR = dscrValues.length > 0 ? dscrValues.reduce((s, y) => s + y.dscr, 0) / dscrValues.length : 0;
+  const noDebtService = dscrValues.length === 0;
+  const minDSCR = noDebtService ? 0 : Math.min(...dscrValues.map((y) => y.dscr));
+  const minDSCRYear = noDebtService ? 0 : (years.find((y) => y.dscr === minDSCR)?.year ?? 0);
+  const avgDSCR = noDebtService ? 0 : dscrValues.reduce((s, y) => s + y.dscr, 0) / dscrValues.length;
 
   const deficitYears = years.filter((y) => y.deficit).map((y) => y.year);
   const cumulativeDeficitTotal = years[years.length - 1]?.cumulativeDeficit ?? 0;

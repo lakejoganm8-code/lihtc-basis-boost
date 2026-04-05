@@ -272,8 +272,8 @@ export function ProFormaTable({
         </div>
         <div className="p-3 bg-gray-50 rounded-lg">
           <div className="text-xs text-gray-500">Min DSCR / Year</div>
-          <div className={`text-sm font-mono font-bold ${dscrStatus(result.minDSCR) === "pass" ? "text-emerald-600" : result.minDSCR >= 1.0 ? "text-amber-600" : "text-red-600"}`}>
-            {result.minDSCR === Infinity ? "∞" : result.minDSCR.toFixed(2)} (Yr {result.minDSCRYear})
+          <div className={`text-sm font-mono font-bold ${result.minDSCR === 0 && result.totalDebtService === 0 ? "text-emerald-600" : dscrStatus(result.minDSCR) === "pass" ? "text-emerald-600" : result.minDSCR >= 1.0 ? "text-amber-600" : "text-red-600"}`}>
+            {result.minDSCR === 0 && result.totalDebtService === 0 ? "∞ (No debt)" : result.minDSCR === Infinity ? "∞" : result.minDSCR.toFixed(2)} (Yr {result.minDSCRYear})
           </div>
         </div>
         <div className={`p-3 rounded-lg ${result.deficitYears.length > 0 ? "bg-red-50" : "bg-emerald-50"}`}>
