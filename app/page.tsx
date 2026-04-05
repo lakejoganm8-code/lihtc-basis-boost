@@ -16,13 +16,19 @@ import { ProFormaTable } from "@/components/pro-forma-table";
 import { DscrIndicator } from "@/components/dscr-indicator";
 import { ScenarioComparison } from "@/components/scenario-comparison";
 import { SensitivitySliders } from "@/components/sensitivity-sliders";
+import { UnitMixBuilder } from "@/components/unit-mix-builder";
+import { RentComparison } from "@/components/rent-comparison";
+import { ComplianceTimelineView } from "@/components/compliance-timeline";
+import { SetAsideChecker } from "@/components/set-aside-checker";
+import { AmiApiResponse, FairMarketRent } from "@/lib/types";
+import { buildComplianceTimeline } from "@/lib/compliance";
 
 const LocationMap = dynamic(
   () => import("@/components/location-map").then((m) => m.LocationMap),
   { ssr: false, loading: () => <div className="h-[450px] bg-slate-100 rounded-xl animate-pulse" /> }
 );
 
-type Step = "address" | "eligibility-done" | "financial" | "financial-detailed" | "results" | "proforma" | "scenarios";
+type Step = "address" | "eligibility-done" | "financial" | "financial-detailed" | "results" | "proforma" | "scenarios" | "market" | "compliance";
 
 export default function Home() {
   const [step, setStep] = useState<Step>("address");
@@ -46,6 +52,10 @@ export default function Home() {
     equityPricing: number;
     boostApplied: boolean;
   } | null>(null);
+
+  // Phase 4: Market & Rent Context data
+  const [amiData, setAmiData] = useState<AmiApiResponse | null>(null);
+  const [fmrData, setFmrData] = useState<FairMarketRent | null>(null);
 
   // Map interaction
   const [mapSelection, setMapSelection] = useState<[number, number] | null>(null);
@@ -83,6 +93,7 @@ export default function Home() {
       });
       const eligData: EligibilityResponse = await eligRes.json();
       setEligibility(eligData);
+      await fetchMarketData(data.state, data.county || undefined);
       setStep("eligibility-done");
     } catch {
       setError("Something went wrong. Please try again.");
@@ -93,6 +104,9 @@ export default function Home() {
 
   async function handleMapClick(lat: number, lng: number, tract: string, stateFips: string, countyFips: string) {
     const fullGeoId = `${stateFips}${countyFips}${tract}`;
+    // Lookup state name from FIPS for AMI data
+    const stateNames: Record<string, string> = { "36": "NY", "34": "NJ", "09": "CT" };
+    const stateName = stateNames[stateFips] || "NY";
     setGeocoded({
       matched: true,
       tract,
@@ -100,7 +114,7 @@ export default function Home() {
       stateFips,
       fullGeoId,
       county: "",
-      state: "",
+      state: stateName,
       lat,
       lng,
     });
@@ -116,6 +130,7 @@ export default function Home() {
       });
       const eligData: EligibilityResponse = await eligRes.json();
       setEligibility(eligData);
+      await fetchMarketData(stateName);
       setStep("eligibility-done");
     } catch {
       setError("Something went wrong. Please try again.");
@@ -172,6 +187,27 @@ export default function Home() {
     }
   }
 
+  async function fetchMarketData(state: string, county?: string) {
+    try {
+      const [amiRes, fmrRes] = await Promise.all([
+        fetch("/api/hud-ami", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state, county }),
+        }),
+        fetch("/api/hud-fmr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state }),
+        }),
+      ]);
+      if (amiRes.ok) setAmiData(await amiRes.json());
+      if (fmrRes.ok) setFmrData(await fmrRes.json());
+    } catch {
+      // Non-blocking — market data is optional
+    }
+  }
+
   function reset() {
     setStep("address");
     setGeocoded(null);
@@ -217,8 +253,12 @@ export default function Home() {
             4. Results
           </span>
           <span className="text-gray-400">→</span>
-          <span className={`px-3 py-1 rounded-full font-medium ${step === "proforma" || step === "scenarios" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+          <span className={`px-3 py-1 rounded-full font-medium ${step === "market" ? "bg-emerald-100 text-emerald-700" : step === "compliance" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-400"}`}>
             5. Advanced
+          </span>
+          <span className="text-gray-400">→</span>
+          <span className={`px-3 py-1 rounded-full font-medium ${step === "compliance" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+            6. Compliance
           </span>
         </div>
 
@@ -377,6 +417,136 @@ export default function Home() {
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Sensitivity Analysis</h3>
                 <SensitivitySliders />
+              </div>
+
+              {/* Link to Phase 4 */}
+              {geocoded && (
+                <div>
+                  <button
+                    onClick={() => setStep("market")}
+                    className="text-sm text-blue-600 hover:underline font-medium"
+                  >
+                    Continue to Market & Rent Context →
+                  </button>
+                  {" | "}
+                  <button
+                    onClick={() => setStep("compliance")}
+                    className="text-sm text-blue-600 hover:underline font-medium"
+                  >
+                    Compliance Dashboard →
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Phase 4: Market & Rent Context */}
+          {step === "market" && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-800">Market & Rent Context</h2>
+                <button
+                  onClick={() => setStep("scenarios")}
+                  className="text-sm text-blue-600 hover:underline font-medium"
+                >
+                  ← Back to Scenarios
+                </button>
+              </div>
+
+              {/* Unit Mix Builder */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Unit Mix Builder</h3>
+                <UnitMixBuilder
+                  state={geocoded?.state}
+                  county={geocoded?.county}
+                  amiData={amiData}
+                />
+              </div>
+
+              {/* Rent Comparison vs FMR */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Fair Market Rent Comparison</h3>
+                <RentComparison
+                  fmrData={fmrData ? {
+                    "0": fmrData.zeroBr ?? 0,
+                    "1": fmrData.oneBr ?? 0,
+                    "2": fmrData.twoBr ?? 0,
+                    "3": fmrData.threeBr ?? 0,
+                    "4": fmrData.fourBr ?? 0,
+                  } : null}
+                  state={geocoded?.state || "NY"}
+                />
+              </div>
+
+              {/* Link to Phase 5 */}
+              {proFormaParams && (
+                <div>
+                  <button
+                    onClick={() => setStep("compliance")}
+                    className="text-sm text-blue-600 hover:underline font-medium"
+                  >
+                    Continue to 15-Year Compliance Dashboard →
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Phase 5: Compliance Dashboard */}
+          {step === "compliance" && proFormaParams && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-800">15-Year Compliance Dashboard</h2>
+                <button
+                  onClick={() => setStep("market")}
+                  className="text-sm text-blue-600 hover:underline font-medium"
+                >
+                  ← Back to Market & Rent
+                </button>
+              </div>
+
+              {/* Compliance Timeline */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Compliance Timeline & Form 8609</h3>
+                <ComplianceTimelineView
+                  timeline={buildComplianceTimeline(
+                    Array.from({ length: 15 }, (_, i) => ({
+                      year: i + 1,
+                      yearOffset: i,
+                      grossPotentialRent: 0,
+                      otherIncome: 0,
+                      vacancyLoss: 0,
+                      effectiveGrossIncome: 0,
+                      propertyMgmt: 0,
+                      taxes: 0,
+                      insurance: 0,
+                      utilities: 0,
+                      maintenance: 0,
+                      personnel: 0,
+                      admin: 0,
+                      reserveContrib: 0,
+                      totalOperatingExpenses: 0,
+                      netOperatingIncome: 100_000,
+                      debtService: 75_000,
+                      cashFlowBeforeTax: 25_000,
+                      dscr: 1.33,
+                      deficit: false,
+                      cumulativeCashFlow: 0,
+                      cumulativeDeficit: 0,
+                    })),
+                    proFormaParams.totalDevelopmentCost * (proFormaParams.eligibleBasisPct / 100),
+                    proFormaParams.applicableFraction,
+                    proFormaParams.boostApplied,
+                    proFormaParams.creditType,
+                    new Date().getFullYear(),
+                  )}
+                />
+              </div>
+
+              {/* Set-aside checker */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-3">Set-aside Compliance Checker</h3>
+                <SetAsideChecker totalUnits={10} />
               </div>
             </section>
           )}

@@ -280,3 +280,140 @@ export interface BreakevenResult {
   minRentRequired: number;
   feasible: boolean;
 }
+
+// ============================================================
+// Phase 4: Market & Rent Context
+// ============================================================
+
+export type HouseholdSize = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type AmiLevel = 30 | 40 | 50 | 60; // AMI tiers used for LIHTC
+
+export interface AmiLimit {
+  householdSize: HouseholdSize;
+  amiPct: number; // e.g., 30, 40, 50, 60
+  maxRent: number; // monthly
+  incomeLimit: number; // annual
+}
+
+export interface AmiApiResponse {
+  county: string;
+  state: string;
+  year: number;
+  veryLowIncome: number; // 50% AMI
+  lowIncome: number; // 80% AMI
+  limits: AmiLimit[];
+}
+
+export interface FairMarketRent {
+  fips: string;
+  year: number;
+  zeroBr: number;
+  oneBr: number;
+  twoBr: number;
+  threeBr: number;
+  fourBr: number;
+}
+
+export interface FmrApiResponse {
+  area: string;
+  state: string;
+  metro: string;
+  fmr: {
+    "0": number;
+    "1": number;
+    "2": number;
+    "3": number;
+    "4": number;
+  };
+}
+
+export interface UnitDefinition {
+  id: string;
+  unit: number;
+  bedrooms: number;
+  amiTier: AmiLevel;
+  proposedRent: number;
+  count: number; // number of identical units
+}
+
+export interface UnitMixResult {
+  unit: UnitDefinition;
+  maxAllowedRent: number;
+  exceedsLimit: boolean;
+  variance: number; // proposedRent - maxAllowedRent (negative = under limit)
+}
+
+export interface RentComparisonResult {
+  bedrooms: number;
+  proposedRent: number;
+  fairMarketRent: number | null;
+  amiLimitRent: number | null;
+  isFeasible: boolean;
+  flag: string | null;
+}
+
+export interface SetAsideTest {
+  type: "2050" | "4060";
+  description: string;
+  met: boolean;
+  requiredUnits: number;
+  actualUnits: number;
+  totalUnits: number;
+  requiredPct: number;
+  actualPct: number;
+}
+
+// ============================================================
+// Phase 5: Compliance Dashboard
+// ============================================================
+
+export interface ComplianceYear {
+  year: number;
+  applicableFraction: number;
+  qualifiedBasis: number;
+  annualCredits: number;
+  totalCreditsToDate: number;
+  boostActive: boolean;
+  deficitFlag: boolean;
+  qualifiedBasisReduction: boolean;
+  yearType: "credit" | "compliance";
+  netOperatingIncome: number;
+  debtService: number;
+  dscr: number;
+}
+
+export interface ComplianceTimeline {
+  years: ComplianceYear[];
+  totalEquityGenerated: number;
+  complianceEndYear: number;
+  creditPeriodEnd: number;
+  placedInServiceYear: number;
+  setAsideViolations: number;
+  basisReductionEvents: number;
+}
+
+export interface YearlyOccupancyData {
+  year: number;
+  totalUnits: number;
+  compliantUnits: number;
+  totalFloorArea: number;
+  compliantFloorArea: number;
+  election: "2050" | "4060";
+}
+
+export interface SetAsideComplianceYear {
+  year: number;
+  totalUnits: number;
+  compliantUnits: number;
+  requiredUnits: number;
+  met: boolean;
+  isTestingPeriod: boolean;
+}
+
+export interface Form8609Data {
+  placedInServiceYear: number;
+  creditStartYear: number;
+  creditPeriodEnd: number;
+  compliancePeriodEnd: number;
+  milestones: { year: number; label: string }[];
+}

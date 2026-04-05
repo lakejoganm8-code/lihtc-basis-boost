@@ -1,4 +1,4 @@
-import { GeocodeRequest, GeocodeResponse } from "./types";
+import { GeocodeRequest, ReverseGeocodeRequest } from "./types";
 
 export async function geocodeAddress(req: GeocodeRequest): Promise<GeocodeResponse> {
   const params = new URLSearchParams({
@@ -27,16 +27,64 @@ export async function geocodeAddress(req: GeocodeRequest): Promise<GeocodeRespon
   }
 
   const geographies = result.geographies;
+  const coordinates = result.coordinates;
 
-  // Iterate all geography entries to extract all needed fields
+  return parseGeocodeResult(geographies, coordinates);
+}
+
+export async function reverseGeocode(req: ReverseGeocodeRequest): Promise<GeocodeResponse> {
+  const params = new URLSearchParams({
+    x: String(req.lng),
+    y: String(req.lat),
+    benchmark: "Public_AR_Current",
+    vintage: "Current_Current",
+    layers: "10",
+    format: "json",
+  });
+
+  const url = `https://geocoding.geo.census.gov/geocoder/geographies/coordinates?${params}`;
+
+  const res = await fetch(url, { next: { revalidate: 86400 } });
+
+  if (!res.ok) {
+    return emptyResult();
+  }
+
+  const data = await res.json();
+  const result = data.result?.geographies?.["Census Blocks"]?.[0];
+
+  if (!result) {
+    return emptyResult();
+  }
+
+  const geographies = { "Census Blocks": [result] };
+
+  return parseGeocodeResult(geographies, { x: req.lng, y: req.lat });
+}
+
+interface GeocodeResponse {
+  matched: boolean;
+  tract: string;
+  countyFips: string;
+  stateFips: string;
+  fullGeoId: string;
+  county: string;
+  state: string;
+  lat?: number;
+  lng?: number;
+}
+
+function parseGeocodeResult(
+  geographies: Record<string, Record<string, unknown>[]>,
+  coordinates?: { x: number; y: number }
+): GeocodeResponse {
   let stateFips = "";
   let countyFips = "";
   let tract = "";
   let countyName = "";
   let stateAbbr = "";
 
-  const geoEntries = geographies as Record<string, Record<string, unknown>[]>;
-  for (const [key, entries] of Object.entries(geoEntries)) {
+  for (const [key, entries] of Object.entries(geographies)) {
     if (!entries?.[0]) continue;
     const entry = entries[0] as Record<string, unknown>;
 
@@ -45,7 +93,6 @@ export async function geocodeAddress(req: GeocodeRequest): Promise<GeocodeRespon
     if (!tract && entry.TRACT) tract = String(entry.TRACT);
     if (!stateAbbr && entry.STUSAB) stateAbbr = String(entry.STUSAB);
 
-    // County name: prefer entries where key contains "County"
     if (!countyName && entry.NAME && typeof entry.NAME === "string") {
       if (key.includes("County") || key.includes("county")) {
         countyName = entry.NAME;
@@ -57,20 +104,15 @@ export async function geocodeAddress(req: GeocodeRequest): Promise<GeocodeRespon
     }
   }
 
-  // Try to get county name from Cities or other keys if still empty
   if (!countyName) {
-    for (const [key, entries] of Object.entries(geoEntries)) {
-      if (
-        entries?.[0]?.NAME &&
-        (key.includes("County") || key.includes("city"))
-      ) {
+    for (const [key, entries] of Object.entries(geographies)) {
+      if (entries?.[0]?.NAME && (key.includes("County") || key.includes("city"))) {
         countyName = entries[0].NAME as string;
         break;
       }
     }
   }
 
-  // Fallback: use state FIPS to state abbreviation mapping
   const stateFipsToName: Record<string, string> = {
     "01": "AL", "02": "AK", "04": "AZ", "05": "AR", "06": "CA", "08": "CO",
     "09": "CT", "10": "DE", "11": "DC", "12": "FL", "13": "GA", "15": "HI",
@@ -87,19 +129,20 @@ export async function geocodeAddress(req: GeocodeRequest): Promise<GeocodeRespon
     stateAbbr = stateFipsToName[stateFips] || stateFips;
   }
 
-  // If still no county name, default to the state name (for DC and county equivalents)
   if (!countyName && stateFips) {
     countyName = stateAbbr || stateFips;
   }
 
   return {
     matched: true,
-    tract: tract,
-    countyFips: countyFips,
-    stateFips: stateFips,
-    fullGeoId: `${stateFips}${countyFips}${tract}`,
+    tract: tract.padStart(6, "0"),
+    countyFips: countyFips.padStart(3, "0"),
+    stateFips: stateFips.padStart(2, "0"),
+    fullGeoId: `${stateFips.padStart(2, "0")}${countyFips.padStart(3, "0")}${tract.padStart(6, "0")}`,
     county: countyName,
     state: stateAbbr,
+    lat: coordinates?.y,
+    lng: coordinates?.x,
   };
 }
 
@@ -112,5 +155,7 @@ function emptyResult(): GeocodeResponse {
     fullGeoId: "",
     county: "",
     state: "",
+    lat: undefined,
+    lng: undefined,
   };
 }
